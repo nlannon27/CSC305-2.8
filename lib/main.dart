@@ -36,11 +36,15 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     ['C', '0', '=', '+'],
   ];
 
-  bool get _justEvaluated => _accumulator.contains('='); // last press was '='
+  bool get _justEvaluated => _accumulator.contains('=');
 
   void _onKey(String k) {
     if (k == 'C') {
       _clear();
+      return;
+    }
+    if (k == 'x^2') {
+      _applySquare();
       return;
     }
     if (k == '=') {
@@ -116,7 +120,6 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
 
   void _finalEvaluate() {
     if (_tokens.isEmpty || _isOperator(_tokens.last)) {
-      // nothing to do
       return;
     }
     final exprStr = _tokens.join(' ');
@@ -139,7 +142,6 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
       final fixed = d.toStringAsFixed(10);
       return _trimNumber(fixed);
     } catch (_) {
-      // Try to detect divide by zero in a simple way
       if (exprStr.contains('/ 0')) return 'Error: divide by zero';
       return 'Error';
     }
@@ -149,7 +151,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     // 14.0000000000 -> 14, 14.2300000000 -> 14.23
     var out = s;
     while (out.contains('.') && (out.endsWith('0') || out.endsWith('.'))) {
-      out = out.endsWith('.') ? out.substring(0, out.length - 1) : out.substring(0, out.length - 1);
+      out = out.substring(0, out.length - 1);
       if (!out.contains('.')) break;
     }
     return out;
@@ -158,7 +160,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
   String _stripLeadingZeros(String s) {
     final stripped = s.replaceFirst(RegExp(r'^0+'), '');
     return stripped.isEmpty ? '0' : stripped;
-    }
+  }
 
   bool _isDigit(String k) => RegExp(r'^[0-9]$').hasMatch(k);
   bool _isOperator(String k) => k == '+' || k == '-' || k == '*' || k == '/';
@@ -169,6 +171,48 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
       _accumulator = '';
       _resultText = '';
     });
+  }
+
+  // New: square the current number or the last result
+  void _applySquare() {
+    // If we just showed a result, square that result and start fresh
+    if (_justEvaluated && _resultText.isNotEmpty) {
+      final val = num.tryParse(_resultText);
+      if (val == null) return;
+      final sq = val * val;
+      _tokens
+        ..clear()
+        ..add(_trimNumber(sq.toStringAsFixed(10)));
+      _updateAccumulator();
+      _liveEvaluate();
+      return;
+    }
+
+    if (_tokens.isEmpty || _isOperator(_tokens.last)) return;
+
+    // Handle leading negative like: ['0','-','5']
+    if (_tokens.length == 3 &&
+        _tokens[0] == '0' &&
+        _tokens[1] == '-' &&
+        !_isOperator(_tokens[2])) {
+      final v = num.tryParse(_tokens[2]);
+      if (v == null) return;
+      final sq = v * v;
+      _tokens
+        ..clear()
+        ..add(_trimNumber(sq.toStringAsFixed(10)));
+      _updateAccumulator();
+      _liveEvaluate();
+      return;
+    }
+
+    // Normal case: square the last number token
+    final v = num.tryParse(_tokens.last);
+    if (v == null) return;
+    final sq = v * v;
+    _tokens[_tokens.length - 1] = _trimNumber(sq.toStringAsFixed(10));
+    _updateAccumulator();
+    _liveEvaluate();
   }
 
   @override
@@ -182,85 +226,98 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
       ),
       body: SafeArea(
         child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
+          padding: const EdgeInsets.all(16),
+          child: Column(
             children: [
-                // Display
-                Container(
+              // Display
+              Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                    color: scheme.surface,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: scheme.outlineVariant),
+                  color: scheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: scheme.outlineVariant),
                 ),
                 child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
                     Text(
-                        _accumulator.isEmpty ? '0' : _accumulator,
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(
+                      _accumulator.isEmpty ? '0' : _accumulator,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w500,
                         letterSpacing: 0.5,
-                        ),
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                        _resultText.isEmpty ? '' : _resultText,
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
+                      _resultText.isEmpty ? '' : _resultText,
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
                         fontSize: 32,
                         fontWeight: FontWeight.bold,
                         color: _resultText.startsWith('Error')
                             ? Colors.red
                             : scheme.primary,
-                        ),
+                      ),
                     ),
-                    ],
+                  ],
                 ),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton(
+                  onPressed: _applySquare,
+                  child: const Text('x^2'),
                 ),
-                const SizedBox(height: 16),
-                // Keypad
-                Expanded(
+              ),
+              const SizedBox(height: 8),
+              // Keypad
+              Expanded(
                 child: LayoutBuilder(
-                    builder: (context, c) {
-                        final rows = _keys.length;
-                        const rowGap = 12.0; // vertical gap between rows (matches the Padding in each row)
-                        final sizeByWidth  = (c.maxWidth - 24) / 4;                    // 24 ~= left+right breathing room
-                        final sizeByHeight = (c.maxHeight - rowGap * (rows - 1)) / rows;
-                        final btnSize = sizeByHeight < sizeByWidth ? sizeByHeight : sizeByWidth;return Column(
-                        children: _keys.map((row) {
+                  builder: (context, c) {
+                    final rows = _keys.length;
+                    const rowGap = 12.0;
+                    final sizeByWidth = (c.maxWidth - 24) / 4;
+                    final sizeByHeight =
+                        (c.maxHeight - rowGap * (rows - 1)) / rows;
+                    final btnSize =
+                        sizeByHeight < sizeByWidth ? sizeByHeight : sizeByWidth;
+                    return Column(
+                      children: _keys.map((row) {
                         return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: Row(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: row.map((label) {
-                                final isOp = _isOperator(label) || label == '=' || label == 'C';
-                                return _CalcButton(
+                              final isOp = _isOperator(label) ||
+                                  label == '=' ||
+                                  label == 'C';
+                              return _CalcButton(
                                 label: label,
                                 size: btnSize,
                                 onTap: () => _onKey(label),
                                 isPrimary: label == '=',
                                 isDanger: label == 'C',
                                 isOp: isOp,
-                                );
+                              );
                             }).toList(),
-                            ),
+                          ),
                         );
-                        }).toList(),
+                      }).toList(),
                     );
-                    },
+                  },
                 ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
+              ),
+              const SizedBox(height: 8),
+              const Text(
                 'Tip: expressions follow normal order of operations.',
                 style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
+              ),
             ],
-            ),
+          ),
         ),
       ),
     );
